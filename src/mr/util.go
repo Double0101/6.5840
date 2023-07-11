@@ -24,6 +24,12 @@ const (
 	TASK_TYPE_REDUCE = 1
 )
 
+const (
+	PHASE_MAP    = 0
+	PHASE_REDUCE = 1
+	PHASE_DONE   = 2
+)
+
 type RegisterArgs struct{}
 
 type RegisterReply struct {
@@ -37,12 +43,15 @@ type TaskArgs struct {
 type TaskReply struct {
 	FilePath string
 	TaskType int
+	TaskId   int
 }
 
 type DoneArgs struct {
-	WorderId int
-	TaskId   int
-	Result   []KeyValue
+	WorderId     int
+	TaskId       int
+	TaskType     int
+	ResultMap    []KeyValue
+	ResultReduce string
 }
 
 type DoneReply struct{}

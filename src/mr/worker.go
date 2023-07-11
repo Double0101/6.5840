@@ -12,9 +12,12 @@ type KeyValue struct {
 }
 
 type Work struct {
-	Id      int
-	MapF    func(string, string) []KeyValue
-	ReduceF func(string, []string) string
+	Id       int
+	MapF     func(string, string) []KeyValue
+	ReduceF  func(string, []string) string
+	TaskType int
+	TaskId   int
+	FilePath string
 }
 
 // use ihash(key) % NReduce to choose the reduce
@@ -34,6 +37,17 @@ func (w *Work) Register() {
 	w.Id = reply.WorkerId
 }
 
+func (w *Work) GetOneTask() {
+	args := &TaskArgs{}
+	reply := &TaskReply{}
+	if ok := call("Coordinator.DispatchTask", args, reply); !ok {
+		log.Fatal("get task failed!")
+	}
+	w.TaskType = reply.TaskType
+	w.FilePath = reply.FilePath
+	w.TaskId = reply.TaskId
+}
+
 // main/mrworker.go calls this function.
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
@@ -47,7 +61,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	w.Register()
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
-
+	w.GetOneTask()
 }
 
 // example function to show how to make an RPC call to the coordinator.

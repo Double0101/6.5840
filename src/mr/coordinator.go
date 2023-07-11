@@ -11,14 +11,15 @@ import "net/http"
 
 type Coordinator struct {
 	// Your definitions here.
-	Files       []string
-	NoReduce    int
-	NoFile      int
-	MapTasks    []Task
-	MapFinished bool
-	Finished    bool
-	Mu          sync.Mutex
-	NoWorker    int
+	Files     []string
+	NoReduce  int
+	NoFile    int
+	MapTasks  []Task
+	MapRemain int
+	Phase     int
+	Finished  bool
+	Mu        sync.Mutex
+	NoWorker  int
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -48,7 +49,7 @@ func (c *Coordinator) mapTaskCanRun(idx int) bool {
 }
 
 func (c *Coordinator) DispatchTask(args *TaskArgs, reply *TaskReply) error {
-	if !c.MapFinished {
+	if c.MapRemain == 0 {
 		// dispatch map task
 		idx := 0
 		for idx < c.NoFile {
@@ -57,6 +58,7 @@ func (c *Coordinator) DispatchTask(args *TaskArgs, reply *TaskReply) error {
 			if c.mapTaskCanRun(idx) {
 				reply.TaskType = TASK_TYPE_MAP
 				reply.FilePath = c.Files[idx]
+				reply.TaskId = idx
 				return nil
 			}
 			idx += 1
@@ -70,19 +72,13 @@ func (c *Coordinator) DispatchTask(args *TaskArgs, reply *TaskReply) error {
 func (c *Coordinator) TaskDone(args *DoneArgs, reply *DoneReply) error {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
-	c.MapTasks[args.TaskId].TaskStatus = TASK_STATUS_FINISH
-	c.MapTasks[args.TaskId].Result = args.Result
-
-	if c.MapFinished {
-		return nil
+	if args.TaskType == TASK_TYPE_MAP {
+		c.MapTasks[args.TaskId].TaskStatus = TASK_STATUS_FINISH
+		c.MapTasks[args.TaskId].Result = args.ResultMap
+		c.MapRemain -= 1
 	}
-
-	c.MapFinished = true
-	for _, task := range c.MapTasks {
-		if task.TaskStatus != TASK_STATUS_FINISH {
-			c.MapFinished = false
-			return nil
-		}
+	if c.MapRemain == 0 {
+		return nil
 	}
 	// TODO: if mapfinished == true uniform result
 
@@ -126,7 +122,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.NoFile = len(files)
 	c.NoReduce = nReduce
 	c.Mu = sync.Mutex{}
-	c.MapFinished = false
+	c.MapRemain = c.NoFile
 	c.Finished = false
 	c.NoWorker = 0
 	c.MapTasks = make([]Task, len(files))
