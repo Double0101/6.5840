@@ -1,6 +1,9 @@
 package mr
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type Task struct {
 	FilePath   string
@@ -13,10 +16,9 @@ type Task struct {
 
 const (
 	TASK_STATUS_READY   = 0
-	TASK_STATUS_QUEUE   = 1
-	TASK_STATUS_RUNNING = 2
-	TASK_STATUS_FINISH  = 3
-	TASK_STATUS_ERROR   = 4
+	TASK_STATUS_RUNNING = 1
+	TASK_STATUS_FINISH  = 2
+	TASK_STATUS_ERROR   = 3
 )
 
 const (
@@ -44,14 +46,21 @@ type TaskReply struct {
 	FilePath string
 	TaskType int
 	TaskId   int
+	NoReduce int
 }
 
 type DoneArgs struct {
-	WorderId     int
-	TaskId       int
-	TaskType     int
-	ResultMap    []KeyValue
-	ResultReduce string
+	WorderId int
+	TaskId   int
+	TaskType int
 }
 
 type DoneReply struct{}
+
+func ReduceFileName(midx, ridx int) string {
+	return fmt.Sprintf("mr-%d-%d", midx, ridx)
+}
+
+func MergeFileName(ridx int) string {
+	return fmt.Sprintf("mr-out-%d", ridx)
+}

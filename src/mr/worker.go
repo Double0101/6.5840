@@ -1,6 +1,11 @@
 package mr
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"os"
+)
 import "log"
 import "net/rpc"
 import "hash/fnv"
@@ -18,6 +23,7 @@ type Work struct {
 	TaskType int
 	TaskId   int
 	FilePath string
+	NoReduce int
 }
 
 // use ihash(key) % NReduce to choose the reduce
@@ -46,6 +52,60 @@ func (w *Work) GetOneTask() {
 	w.TaskType = reply.TaskType
 	w.FilePath = reply.FilePath
 	w.TaskId = reply.TaskId
+	w.NoReduce = reply.NoReduce
+}
+
+func (w *Work) runMapTask() {
+	// update task status
+	content, err := ioutil.ReadFile(w.FilePath)
+	if err != nil {
+		// update task status
+		return
+	}
+	kvs := w.MapF(w.FilePath, string(content))
+	res := make([][]KeyValue, w.NoReduce)
+	for _, kv := range kvs {
+		idx := ihash(kv.Key) % w.NoReduce
+		res[idx] = append(res[idx], kv)
+	}
+
+	// output result to file
+	for idx, kvl := range res {
+		ofn := ReduceFileName(w.TaskId, idx)
+		if _, err := os.Stat(ofn); os.IsExist(err) {
+			if errt := os.Remove(ofn); errt != nil {
+				// update task status
+				return
+			}
+		}
+		f, err := os.Create(ofn)
+		if err != nil {
+			// update task status
+			return
+		}
+		enc := json.NewEncoder(f)
+		for _, kv := range kvl {
+			if err := enc.Encode(&kv); err != nil {
+				// update task status
+			}
+		}
+		if err := f.Close(); err != nil {
+			// update task status
+		}
+	}
+	// task done
+}
+
+func (w *Work) runReduceTask() {
+	// update task status
+}
+
+func (w *Work) Run() {
+	if w.TaskType == TASK_TYPE_MAP {
+		w.runMapTask()
+	} else {
+		w.runReduceTask()
+	}
 }
 
 // main/mrworker.go calls this function.

@@ -59,6 +59,7 @@ func (c *Coordinator) DispatchTask(args *TaskArgs, reply *TaskReply) error {
 				reply.TaskType = TASK_TYPE_MAP
 				reply.FilePath = c.Files[idx]
 				reply.TaskId = idx
+				reply.NoReduce = c.NoReduce
 				return nil
 			}
 			idx += 1
@@ -74,7 +75,6 @@ func (c *Coordinator) TaskDone(args *DoneArgs, reply *DoneReply) error {
 	defer c.Mu.Unlock()
 	if args.TaskType == TASK_TYPE_MAP {
 		c.MapTasks[args.TaskId].TaskStatus = TASK_STATUS_FINISH
-		c.MapTasks[args.TaskId].Result = args.ResultMap
 		c.MapRemain -= 1
 	}
 	if c.MapRemain == 0 {
