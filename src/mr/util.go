@@ -49,13 +49,14 @@ type TaskReply struct {
 	NoReduce int
 }
 
-type DoneArgs struct {
-	WorderId int
-	TaskId   int
-	TaskType int
+type StatusArgs struct {
+	WorderId   int
+	TaskId     int
+	TaskType   int
+	TaskStatus int
 }
 
-type DoneReply struct{}
+type StatusReply struct{}
 
 func ReduceFileName(midx, ridx int) string {
 	return fmt.Sprintf("mr-%d-%d", midx, ridx)

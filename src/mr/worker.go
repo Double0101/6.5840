@@ -55,8 +55,20 @@ func (w *Work) GetOneTask() {
 	w.NoReduce = reply.NoReduce
 }
 
-func (w *Work) runMapTask() {
-	// update task status
+func (w *Work) UpdateStatus(status int) {
+	args := &StatusArgs{}
+	reply := &StatusReply{}
+	args.TaskId = w.TaskId
+	args.TaskType = w.TaskType
+	args.WorderId = w.Id
+	args.TaskStatus = status
+	if ok := call("Coordinator.UpdateTaskStatus", args, reply); !ok {
+		log.Fatal("update task status failed!")
+	}
+}
+
+func (w *Work) RunMapTask() {
+	w.UpdateStatus(TASK_STATUS_RUNNING)
 	content, err := ioutil.ReadFile(w.FilePath)
 	if err != nil {
 		// update task status
@@ -87,24 +99,26 @@ func (w *Work) runMapTask() {
 		for _, kv := range kvl {
 			if err := enc.Encode(&kv); err != nil {
 				// update task status
+				w.UpdateStatus(TASK_STATUS_ERROR)
+				return
 			}
 		}
 		if err := f.Close(); err != nil {
-			// update task status
+			w.UpdateStatus(TASK_STATUS_ERROR)
 		}
 	}
-	// task done
+	w.UpdateStatus(TASK_STATUS_FINISH)
 }
 
-func (w *Work) runReduceTask() {
+func (w *Work) RunReduceTask() {
 	// update task status
 }
 
 func (w *Work) Run() {
 	if w.TaskType == TASK_TYPE_MAP {
-		w.runMapTask()
+		w.RunMapTask()
 	} else {
-		w.runReduceTask()
+		w.RunReduceTask()
 	}
 }
 

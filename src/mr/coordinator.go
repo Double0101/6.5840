@@ -70,18 +70,17 @@ func (c *Coordinator) DispatchTask(args *TaskArgs, reply *TaskReply) error {
 	return nil
 }
 
-func (c *Coordinator) TaskDone(args *DoneArgs, reply *DoneReply) error {
+func (c *Coordinator) UpdateTaskStatus(args *StatusArgs, reply *StatusReply) error {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
 	if args.TaskType == TASK_TYPE_MAP {
-		c.MapTasks[args.TaskId].TaskStatus = TASK_STATUS_FINISH
-		c.MapRemain -= 1
+		c.MapTasks[args.TaskId].TaskStatus = args.TaskStatus
+		if args.TaskStatus == TASK_STATUS_FINISH {
+			c.MapRemain -= 1
+		}
+	} else {
+		// tasktype = tasktypereduce
 	}
-	if c.MapRemain == 0 {
-		return nil
-	}
-	// TODO: if mapfinished == true uniform result
-
 	return nil
 }
 
