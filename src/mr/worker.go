@@ -136,6 +136,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
 	w.GetOneTask()
+	w.Run()
 }
 
 // example function to show how to make an RPC call to the coordinator.

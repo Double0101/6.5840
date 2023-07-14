@@ -3,6 +3,7 @@ package mr
 import (
 	"log"
 	"sync"
+	"time"
 )
 import "net"
 import "os"
@@ -14,7 +15,7 @@ type Coordinator struct {
 	Files     []string
 	NoReduce  int
 	NoFile    int
-	MapTasks  []Task
+	Tasks     []Task
 	MapRemain int
 	Phase     int
 	Finished  bool
@@ -41,46 +42,83 @@ func (c *Coordinator) Register(args *RegisterArgs, reply *RegisterReply) error {
 }
 
 func (c *Coordinator) mapTaskCanRun(idx int) bool {
-	if c.MapTasks[idx].TaskStatus == TASK_STATUS_READY {
+	switch c.Tasks[idx].TaskStatus {
+	case TASK_STATUS_READY:
+	case TASK_STATUS_ERROR:
 		return true
+	case TASK_STATUS_QUEUE:
+	case TASK_STATUS_RUNNING:
+		if time.Now().Sub(c.Tasks[idx].StartTime) > MAX_RUN_TIME {
+			return true
+		} else {
+			return false
+		}
+	default:
+		return false
 	}
-	// TODO: task rerun
 	return false
 }
 
 func (c *Coordinator) DispatchTask(args *TaskArgs, reply *TaskReply) error {
-	if c.MapRemain == 0 {
-		// dispatch map task
-		idx := 0
-		for idx < c.NoFile {
-			c.Mu.Lock()
-			defer c.Mu.Unlock()
-			if c.mapTaskCanRun(idx) {
-				reply.TaskType = TASK_TYPE_MAP
-				reply.FilePath = c.Files[idx]
-				reply.TaskId = idx
-				reply.NoReduce = c.NoReduce
-				return nil
-			}
-			idx += 1
-		}
+	if c.Phase == PHASE_REDUCE {
+
 	} else {
-		// dispatch reduce task
+		if c.MapRemain != 0 {
+			// dispatch map task
+			idx := 0
+			for idx < c.NoFile {
+				c.Mu.Lock()
+				defer c.Mu.Unlock()
+				if c.mapTaskCanRun(idx) {
+					c.Tasks[idx].TaskStatus = TASK_STATUS_QUEUE
+					c.Tasks[idx].StartTime = time.Now()
+					reply.TaskType = TASK_TYPE_MAP
+					reply.FilePath = c.Files[idx]
+					reply.TaskId = idx
+					reply.NoReduce = c.NoReduce
+					return nil
+				}
+				idx += 1
+			}
+		}
 	}
 	return nil
+}
+
+func (c *Coordinator) initReduceTask() {
+	c.Mu.Lock()
+	c.Tasks = make([]Task, c.NoReduce)
+	for idx := 0; idx < c.NoReduce; idx += 1 {
+		c.Tasks[idx].TaskId = idx
+		c.Tasks[idx].TaskStatus = TASK_STATUS_READY
+		c.Tasks[idx].ReduceN = idx
+		c.Tasks[idx].WorkerId = -1
+	}
+	c.Mu.Unlock()
 }
 
 func (c *Coordinator) UpdateTaskStatus(args *StatusArgs, reply *StatusReply) error {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
-	if args.TaskType == TASK_TYPE_MAP {
-		c.MapTasks[args.TaskId].TaskStatus = args.TaskStatus
-		if args.TaskStatus == TASK_STATUS_FINISH {
-			c.MapRemain -= 1
-		}
-	} else {
-		// tasktype = tasktypereduce
+	if args.WorderId != c.Tasks[args.TaskId].WorkerId ||
+		c.Tasks[args.TaskId].TaskStatus == TASK_STATUS_FINISH {
+		return nil
 	}
+
+	if args.TaskStatus == TASK_STATUS_FINISH {
+		if c.Phase == PHASE_MAP &&
+			args.TaskType == TASK_TYPE_MAP &&
+			c.Tasks[args.TaskId].TaskStatus != TASK_STATUS_FINISH {
+			c.Tasks[args.TaskId].TaskStatus = TASK_STATUS_FINISH
+			c.MapRemain -= 1
+			if c.MapRemain == 0 {
+				go c.initReduceTask()
+			}
+		}
+	} else if args.TaskStatus == TASK_STATUS_ERROR {
+		c.Tasks[args.TaskId].WorkerId = -1
+	}
+	c.Tasks[args.TaskId].TaskStatus = args.TaskStatus
 	return nil
 }
 
@@ -124,12 +162,12 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.MapRemain = c.NoFile
 	c.Finished = false
 	c.NoWorker = 0
-	c.MapTasks = make([]Task, len(files))
+	c.Tasks = make([]Task, len(files))
 	for i, f := range files {
-		c.MapTasks[i].TaskId = i
-		c.MapTasks[i].FilePath = f
-		c.MapTasks[i].TaskStatus = TASK_STATUS_READY
-		c.MapTasks[i].WorkerId = -1
+		c.Tasks[i].TaskId = i
+		c.Tasks[i].FilePath = f
+		c.Tasks[i].TaskStatus = TASK_STATUS_READY
+		c.Tasks[i].WorkerId = -1
 	}
 
 	c.server()

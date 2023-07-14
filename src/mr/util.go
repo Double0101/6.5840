@@ -7,18 +7,23 @@ import (
 
 type Task struct {
 	FilePath   string
+	ReduceN    int
 	TaskStatus int
 	WorkerId   int
 	TaskId     int
 	StartTime  time.Time
-	Result     []KeyValue
 }
 
 const (
 	TASK_STATUS_READY   = 0
-	TASK_STATUS_RUNNING = 1
-	TASK_STATUS_FINISH  = 2
-	TASK_STATUS_ERROR   = 3
+	TASK_STATUS_QUEUE   = 1
+	TASK_STATUS_RUNNING = 2
+	TASK_STATUS_FINISH  = 3
+	TASK_STATUS_ERROR   = 4
+)
+
+const (
+	MAX_RUN_TIME = time.Second * 10
 )
 
 const (
