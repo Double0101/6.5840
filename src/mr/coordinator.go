@@ -12,15 +12,16 @@ import "net/http"
 
 type Coordinator struct {
 	// Your definitions here.
-	Files     []string
-	NoReduce  int
-	NoFile    int
-	Tasks     []Task
-	MapRemain int
-	Phase     int
-	Finished  bool
-	Mu        sync.Mutex
-	NoWorker  int
+	Files        []string
+	NoReduce     int
+	NoFile       int
+	Tasks        []Task
+	MapRemain    int
+	ReduceRemain int
+	Phase        int
+	Finished     bool
+	Mu           sync.Mutex
+	NoWorker     int
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -41,7 +42,7 @@ func (c *Coordinator) Register(args *RegisterArgs, reply *RegisterReply) error {
 	return nil
 }
 
-func (c *Coordinator) mapTaskCanRun(idx int) bool {
+func (c *Coordinator) taskCanRun(idx int) bool {
 	switch c.Tasks[idx].TaskStatus {
 	case TASK_STATUS_READY:
 	case TASK_STATUS_ERROR:
@@ -61,20 +62,39 @@ func (c *Coordinator) mapTaskCanRun(idx int) bool {
 
 func (c *Coordinator) DispatchTask(args *TaskArgs, reply *TaskReply) error {
 	if c.Phase == PHASE_REDUCE {
-
+		if c.ReduceRemain != 0 {
+			idx := 0
+			c.Mu.Lock()
+			defer c.Mu.Unlock()
+			for idx < c.NoReduce {
+				if c.taskCanRun(idx) {
+					c.Tasks[idx].TaskStatus = TASK_STATUS_QUEUE
+					c.Tasks[idx].StartTime = time.Now()
+					c.Tasks[idx].WorkerId = args.WorkId
+					reply.TaskType = TASK_TYPE_REDUCE
+					reply.ReduceN = c.Tasks[idx].ReduceN
+					reply.TaskId = idx
+					reply.NoMap = c.NoFile
+					reply.NoReduce = c.NoReduce
+					return nil
+				}
+			}
+		}
 	} else {
 		if c.MapRemain != 0 {
 			// dispatch map task
 			idx := 0
+			c.Mu.Lock()
+			defer c.Mu.Unlock()
 			for idx < c.NoFile {
-				c.Mu.Lock()
-				defer c.Mu.Unlock()
-				if c.mapTaskCanRun(idx) {
+				if c.taskCanRun(idx) {
 					c.Tasks[idx].TaskStatus = TASK_STATUS_QUEUE
 					c.Tasks[idx].StartTime = time.Now()
+					c.Tasks[idx].WorkerId = args.WorkId
 					reply.TaskType = TASK_TYPE_MAP
 					reply.FilePath = c.Files[idx]
 					reply.TaskId = idx
+					reply.NoMap = c.NoFile
 					reply.NoReduce = c.NoReduce
 					return nil
 				}
@@ -86,7 +106,6 @@ func (c *Coordinator) DispatchTask(args *TaskArgs, reply *TaskReply) error {
 }
 
 func (c *Coordinator) initReduceTask() {
-	c.Mu.Lock()
 	c.Tasks = make([]Task, c.NoReduce)
 	for idx := 0; idx < c.NoReduce; idx += 1 {
 		c.Tasks[idx].TaskId = idx
@@ -94,7 +113,8 @@ func (c *Coordinator) initReduceTask() {
 		c.Tasks[idx].ReduceN = idx
 		c.Tasks[idx].WorkerId = -1
 	}
-	c.Mu.Unlock()
+	c.Phase = PHASE_REDUCE
+	c.ReduceRemain = c.NoReduce
 }
 
 func (c *Coordinator) UpdateTaskStatus(args *StatusArgs, reply *StatusReply) error {
@@ -104,21 +124,24 @@ func (c *Coordinator) UpdateTaskStatus(args *StatusArgs, reply *StatusReply) err
 		c.Tasks[args.TaskId].TaskStatus == TASK_STATUS_FINISH {
 		return nil
 	}
-
+	c.Tasks[args.TaskId].TaskStatus = args.TaskStatus
 	if args.TaskStatus == TASK_STATUS_FINISH {
 		if c.Phase == PHASE_MAP &&
-			args.TaskType == TASK_TYPE_MAP &&
-			c.Tasks[args.TaskId].TaskStatus != TASK_STATUS_FINISH {
-			c.Tasks[args.TaskId].TaskStatus = TASK_STATUS_FINISH
+			args.TaskType == TASK_TYPE_MAP {
 			c.MapRemain -= 1
 			if c.MapRemain == 0 {
-				go c.initReduceTask()
+				c.initReduceTask()
+			}
+		} else if c.Phase == PHASE_REDUCE &&
+			args.TaskType == TASK_TYPE_REDUCE {
+			c.ReduceRemain -= 1
+			if c.ReduceRemain == 0 {
+				c.Finished = true
 			}
 		}
 	} else if args.TaskStatus == TASK_STATUS_ERROR {
 		c.Tasks[args.TaskId].WorkerId = -1
 	}
-	c.Tasks[args.TaskId].TaskStatus = args.TaskStatus
 	return nil
 }
 

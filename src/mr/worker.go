@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strings"
 )
 import "log"
 import "net/rpc"
@@ -23,7 +24,9 @@ type Work struct {
 	TaskType int
 	TaskId   int
 	FilePath string
+	ReduceN  int
 	NoReduce int
+	NoMap    int
 }
 
 // use ihash(key) % NReduce to choose the reduce
@@ -51,8 +54,10 @@ func (w *Work) GetOneTask() {
 	}
 	w.TaskType = reply.TaskType
 	w.FilePath = reply.FilePath
+	w.ReduceN = reply.ReduceN
 	w.TaskId = reply.TaskId
 	w.NoReduce = reply.NoReduce
+	w.NoMap = reply.NoMap
 }
 
 func (w *Work) UpdateStatus(status int) {
@@ -71,7 +76,7 @@ func (w *Work) RunMapTask() {
 	w.UpdateStatus(TASK_STATUS_RUNNING)
 	content, err := ioutil.ReadFile(w.FilePath)
 	if err != nil {
-		// update task status
+		w.UpdateStatus(TASK_STATUS_ERROR)
 		return
 	}
 	kvs := w.MapF(w.FilePath, string(content))
@@ -86,32 +91,60 @@ func (w *Work) RunMapTask() {
 		ofn := ReduceFileName(w.TaskId, idx)
 		if _, err := os.Stat(ofn); os.IsExist(err) {
 			if errt := os.Remove(ofn); errt != nil {
-				// update task status
+				w.UpdateStatus(TASK_STATUS_ERROR)
 				return
 			}
 		}
 		f, err := os.Create(ofn)
 		if err != nil {
-			// update task status
+			w.UpdateStatus(TASK_STATUS_ERROR)
 			return
 		}
 		enc := json.NewEncoder(f)
 		for _, kv := range kvl {
 			if err := enc.Encode(&kv); err != nil {
-				// update task status
 				w.UpdateStatus(TASK_STATUS_ERROR)
 				return
 			}
 		}
 		if err := f.Close(); err != nil {
 			w.UpdateStatus(TASK_STATUS_ERROR)
+			return
 		}
 	}
 	w.UpdateStatus(TASK_STATUS_FINISH)
 }
 
 func (w *Work) RunReduceTask() {
-	// update task status
+	w.UpdateStatus(TASK_STATUS_RUNNING)
+	values := make(map[string][]string)
+	for tid := 0; tid < w.NoMap; tid += 1 {
+		fn := ReduceFileName(tid, w.ReduceN)
+		f, err := os.Open(fn)
+		if err != nil {
+			w.UpdateStatus(TASK_STATUS_ERROR)
+			return
+		}
+		dec := json.NewDecoder(f)
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err != nil {
+				break
+			}
+			if _, ok := values[kv.Key]; !ok {
+				values[kv.Key] = make([]string, 0, 100)
+			}
+			values[kv.Key] = append(values[kv.Key], kv.Value)
+		}
+	}
+	res := make([]string, 0, 100)
+	for k, vs := range values {
+		res = append(res, fmt.Sprintf("%v %v\n", k, w.ReduceF(k, vs)))
+	}
+	if err := ioutil.WriteFile(MergeFileName(w.ReduceN), []byte(strings.Join(res, "")), 0600); err != nil {
+		w.UpdateStatus(TASK_STATUS_ERROR)
+	}
+	w.UpdateStatus(TASK_STATUS_FINISH)
 }
 
 func (w *Work) Run() {

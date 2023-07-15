@@ -49,9 +49,11 @@ type TaskArgs struct {
 
 type TaskReply struct {
 	FilePath string
+	ReduceN  int
 	TaskType int
 	TaskId   int
 	NoReduce int
+	NoMap    int
 }
 
 type StatusArgs struct {
